@@ -1,6 +1,7 @@
 import requests
 import json
 import os
+import re
 import firebase_admin
 from firebase_admin import credentials, firestore
 import sib_api_v3_sdk
@@ -15,46 +16,64 @@ cred = credentials.Certificate(service_account)
 firebase_admin.initialize_app(cred)
 db = firestore.client()
 
-def fetch_products():
+def fetch_site2():
     url = "https://smartpos.amazon.in/api-unauthenticated/resources/external/catalog/products?groupVariants=true"
     payload = {"filter": {"division": None, "isBestSeller": None}, "limit": 100, "offset": 0, "shopId": 48236}
     headers = {"Content-Type": "application/json", "Origin": "https://www.hmtwatches.store", "Referer": "https://www.hmtwatches.store/"}
     r = requests.post(url, json=payload, headers=headers, timeout=15)
     r.raise_for_status()
-    return [p for p in r.json() if "kohinoor" in p.get("name", "").lower()]
-
-def any_in_stock(products):
+    products = [p for p in r.json() if "kohinoor" in p.get("name", "").lower()]
     for p in products:
         avail = p.get("buyingOptions", {}).get("singlePurchase", {}).get("availability", {})
         if avail.get("inStock") or avail.get("isBuyable"):
-            return True
-    return False
+            return True, "https://www.hmtwatches.store/collection/c757ecc9-31e2-4cf7-bcb1-9b29f5c57c41/Kohinoor"
+    return False, None
+
+def fetch_site1():
+    headers = {"User-Agent": "Mozilla/5.0"}
+    r = requests.get("https://www.hmtwatches.in", headers=headers, timeout=15)
+    page = r.text
+    kohinoor_blocks = re.findall(r'(?i)(kohinoor.{0,300})', page)
+    for block in kohinoor_blocks:
+        if "Out Of Stock" not in block and "out_of_stock" not in block.lower():
+            return True, "https://www.hmtwatches.in"
+    return False, None
 
 def get_last_state():
     doc = db.collection("state").document("drop_status").get()
-    return doc.to_dict().get("was_in_stock", False) if doc.exists else False
+    if doc.exists:
+        return doc.to_dict()
+    return {"site1": False, "site2": False}
 
-def save_state(is_in_stock):
-    db.collection("state").document("drop_status").set({"was_in_stock": is_in_stock})
+def save_state(site1, site2):
+    db.collection("state").document("drop_status").set({"site1": site1, "site2": site2})
 
-def log_drop():
+def log_drop(site, url):
     from datetime import datetime, timezone
-    db.collection("drops").add({"timestamp": datetime.now(timezone.utc).isoformat(), "site": "hmtwatches.store", "product": "HMT Kohinoor"})
+    db.collection("drops").add({
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "site": site,
+        "product": "HMT Kohinoor",
+        "url": url
+    })
 
 def get_subscribers():
     return [doc.to_dict().get("email") for doc in db.collection("subscribers").stream() if doc.to_dict().get("email")]
 
-def send_alerts(emails):
+def send_alerts(emails, site1_url, site2_url):
     configuration = sib_api_v3_sdk.Configuration()
     configuration.api_key["api-key"] = BREVO_API_KEY
     api = sib_api_v3_sdk.TransactionalEmailsApi(sib_api_v3_sdk.ApiClient(configuration))
     subject = "🚨 HMT Kohinoor is IN STOCK NOW!"
-    html = """<h2>HMT Kohinoor Drop Alert</h2>
+    links = ""
+    if site2_url:
+        links += f'<a href="{site2_url}" style="background:#000;color:#fff;padding:12px 24px;text-decoration:none;border-radius:4px;margin-right:10px;">Buy on HMT Store</a>'
+    if site1_url:
+        links += f'<a href="{site1_url}" style="background:#333;color:#fff;padding:12px 24px;text-decoration:none;border-radius:4px;">Buy on HMT Official</a>'
+    html = f"""<h2>HMT Kohinoor Drop Alert</h2>
     <p>The HMT Kohinoor watch is <strong>available right now</strong>. Act fast!</p>
-    <p>
-      <a href="https://www.hmtwatches.store/collection/c757ecc9-31e2-4cf7-bcb1-9b29f5c57c41/Kohinoor" style="background:#000;color:#fff;padding:12px 24px;text-decoration:none;border-radius:4px;margin-right:10px;">Buy on HMT Store</a>
-      <a href="https://www.hmtwatches.in" style="background:#333;color:#fff;padding:12px 24px;text-decoration:none;border-radius:4px;">Buy on HMT Official</a>
-    </p>"""
+    <p>{links}</p>
+    <p style="color:#888;font-size:12px;">You subscribed to HMT Kohinoor drop alerts.</p>"""
     for email in emails:
         try:
             api.send_transac_email(sib_api_v3_sdk.SendSmtpEmail(
@@ -66,19 +85,32 @@ def send_alerts(emails):
             print(f"Failed: {email} — {e}")
 
 def main():
-    print("Checking HMT Kohinoor stock...")
-    products = fetch_products()
-    print(f"Found {len(products)} Kohinoor products")
-    currently_in_stock = any_in_stock(products)
-    was_in_stock = get_last_state()
-    print(f"Was in stock: {was_in_stock} | Now: {currently_in_stock}")
-    if currently_in_stock and not was_in_stock:
+    print("Checking HMT Kohinoor stock on both sites...")
+    try:
+        site2_in_stock, site2_url = fetch_site2()
+        print(f"Site 2: {'IN STOCK' if site2_in_stock else 'Out of Stock'}")
+    except Exception as e:
+        print(f"Site 2 failed: {e}")
+        site2_in_stock, site2_url = False, None
+    try:
+        site1_in_stock, site1_url = fetch_site1()
+        print(f"Site 1: {'IN STOCK' if site1_in_stock else 'Out of Stock'}")
+    except Exception as e:
+        print(f"Site 1 failed: {e}")
+        site1_in_stock, site1_url = False, None
+    last = get_last_state()
+    new_drop_site1 = site1_in_stock and not last.get("site1", False)
+    new_drop_site2 = site2_in_stock and not last.get("site2", False)
+    if new_drop_site1 or new_drop_site2:
         print("DROP DETECTED — sending alerts!")
-        log_drop()
+        if new_drop_site1: log_drop("hmtwatches.in", site1_url)
+        if new_drop_site2: log_drop("hmtwatches.store", site2_url)
         subscribers = get_subscribers()
         if subscribers:
-            send_alerts(subscribers)
-    save_state(currently_in_stock)
+            send_alerts(subscribers, site1_url if site1_in_stock else None, site2_url if site2_in_stock else None)
+    else:
+        print("No new drops detected.")
+    save_state(site1_in_stock, site2_in_stock)
     print("Done.")
 
 if __name__ == "__main__":
