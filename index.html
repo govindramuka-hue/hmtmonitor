@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>HMT Kohinoor Drop Alerts</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #0a0a0a;
+      color: #fff;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .badge {
+      background: #1a1a1a;
+      border: 1px solid #333;
+      border-radius: 20px;
+      padding: 6px 16px;
+      font-size: 12px;
+      color: #888;
+      margin-bottom: 32px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+    }
+    h1 {
+      font-size: clamp(28px, 6vw, 52px);
+      font-weight: 700;
+      text-align: center;
+      line-height: 1.15;
+      margin-bottom: 16px;
+      letter-spacing: -1px;
+    }
+    h1 span { color: #c9a84c; }
+    p.sub {
+      color: #888;
+      text-align: center;
+      max-width: 420px;
+      font-size: 15px;
+      line-height: 1.6;
+      margin-bottom: 40px;
+    }
+    .form-row {
+      display: flex;
+      gap: 10px;
+      width: 100%;
+      max-width: 440px;
+      margin-bottom: 16px;
+    }
+    input[type="email"] {
+      flex: 1;
+      padding: 14px 18px;
+      background: #1a1a1a;
+      border: 1px solid #333;
+      border-radius: 8px;
+      color: #fff;
+      font-size: 15px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    input[type="email"]:focus { border-color: #c9a84c; }
+    button {
+      padding: 14px 24px;
+      background: #c9a84c;
+      color: #000;
+      border: none;
+      border-radius: 8px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background 0.2s;
+    }
+    button:hover { background: #e0bc60; }
+    .msg {
+      font-size: 14px;
+      color: #888;
+      text-align: center;
+      min-height: 20px;
+    }
+    .msg.success { color: #4caf82; }
+    .msg.error   { color: #e05c5c; }
+
+    .divider {
+      width: 100%;
+      max-width: 440px;
+      border: none;
+      border-top: 1px solid #222;
+      margin: 48px 0 32px;
+    }
+    .drops-title {
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      color: #555;
+      margin-bottom: 20px;
+    }
+    .drops-list {
+      width: 100%;
+      max-width: 440px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .drop-item {
+      background: #1a1a1a;
+      border: 1px solid #2a2a2a;
+      border-radius: 8px;
+      padding: 14px 18px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 14px;
+    }
+    .drop-item .dot {
+      width: 8px; height: 8px;
+      background: #4caf82;
+      border-radius: 50%;
+      margin-right: 10px;
+      display: inline-block;
+    }
+    .drop-item .time { color: #555; font-size: 12px; }
+    .links {
+      display: flex;
+      gap: 12px;
+      margin-top: 48px;
+    }
+    .links a {
+      color: #555;
+      font-size: 13px;
+      text-decoration: none;
+      transition: color 0.2s;
+    }
+    .links a:hover { color: #c9a84c; }
+  </style>
+</head>
+<body>
+
+  <div class="badge">Free Drop Alerts</div>
+  <h1>Never Miss a<br/><span>Kohinoor</span> Drop</h1>
+  <p class="sub">Get an instant email the moment HMT Kohinoor watches go live — no more refreshing, no more luck.</p>
+
+  <div class="form-row">
+    <input type="email" id="emailInput" placeholder="your@email.com" />
+    <button onclick="subscribe()">Notify Me</button>
+  </div>
+  <div class="msg" id="msg"></div>
+
+  <hr class="divider"/>
+  <div class="drops-title">Past Drops</div>
+  <div class="drops-list" id="dropsList">
+    <div style="color:#444;font-size:14px;text-align:center;">Loading drop history...</div>
+  </div>
+
+  <div class="links">
+    <a href="https://www.hmtwatches.store/collection/c757ecc9-31e2-4cf7-bcb1-9b29f5c57c41/Kohinoor" target="_blank">HMT Store</a>
+    <a href="https://www.hmtwatches.in" target="_blank">HMT Official Site</a>
+  </div>
+
+  <!-- Firebase SDK -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+    import { getFirestore, collection, addDoc, getDocs, query, orderBy, limit }
+      from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
+    // ── REPLACE THESE WITH YOUR FIREBASE CONFIG ──────────────────────────────
+    const firebaseConfig = {
+      apiKey:            "AIzaSyBcsRXuep43xHOfjT6yGbX8E2EKHOm76_o",
+      authDomain:        "hmtmonitor-e2e2f.firebaseapp.com",
+      projectId:         "hmtmonitor-e2e2f",
+      storageBucket:     "hmtmonitor-e2e2f.firebasestorage.app",
+      messagingSenderId: "1032185977436",
+      appId:             "1:1032185977436:web:8c70479f2d9f5cb4042499"
+    };
+    // ─────────────────────────────────────────────────────────────────────────
+
+    const app = initializeApp(firebaseConfig);
+    const db  = getFirestore(app);
+
+    // Subscribe
+    window.subscribe = async function() {
+      const email = document.getElementById("emailInput").value.trim();
+      const msg   = document.getElementById("msg");
+      if (!email || !email.includes("@")) {
+        msg.textContent = "Please enter a valid email.";
+        msg.className = "msg error";
+        return;
+      }
+      try {
+        await addDoc(collection(db, "subscribers"), { email, subscribedAt: new Date().toISOString() });
+        msg.textContent = "✓ You're on the list! We'll email you the moment it drops.";
+        msg.className = "msg success";
+        document.getElementById("emailInput").value = "";
+      } catch(e) {
+        msg.textContent = "Something went wrong. Please try again.";
+        msg.className = "msg error";
+      }
+    };
+
+    // Load drop history
+    async function loadDrops() {
+      const list = document.getElementById("dropsList");
+      try {
+        const q = query(collection(db, "drops"), orderBy("timestamp", "desc"), limit(10));
+        const snap = await getDocs(q);
+        if (snap.empty) {
+          list.innerHTML = '<div style="color:#444;font-size:14px;text-align:center;">No drops recorded yet.</div>';
+          return;
+        }
+        list.innerHTML = "";
+        snap.forEach(doc => {
+          const d = doc.data();
+          const date = new Date(d.timestamp);
+          const formatted = date.toLocaleDateString("en-IN", { day:"numeric", month:"short", year:"numeric", hour:"2-digit", minute:"2-digit" });
+          list.innerHTML += `
+            <div class="drop-item">
+              <span><span class="dot"></span>${d.product || "HMT Kohinoor"}</span>
+              <span class="time">${formatted}</span>
+            </div>`;
+        });
+      } catch(e) {
+        list.innerHTML = '<div style="color:#444;font-size:14px;text-align:center;">Could not load history.</div>';
+      }
+    }
+
+    loadDrops();
+  </script>
+
+</body>
+</html>
