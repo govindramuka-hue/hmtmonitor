@@ -36,20 +36,18 @@ def fetch_site1():
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
     r = requests.get("https://www.hmtwatches.in", headers=headers, timeout=15)
     page = r.text
-    # Find all product blocks that contain Kohinoor
-    # Each product block looks like: product name ... RS. XXXX ... (optionally "Out Of Stock")
-    # We find product_overview links near "Kohinoor" and check if "Out Of Stock" follows before the next product
-    product_blocks = re.split(r'product_overview\?id=', page)
-    kohinoor_available = False
-    for block in product_blocks:
-        if "kohinoor" in block.lower():
-            # Check if this block has Out Of Stock before the next price mention
-            first_500 = block[:500]
-            if "Out Of Stock" not in first_500:
-                kohinoor_available = True
-                print(f"Site 1: Found available Kohinoor product")
-                break
-    return kohinoor_available, "https://www.hmtwatches.in" if kohinoor_available else None
+
+    # Find every occurrence of "HMT Kohinoor" and check the next 300 chars for "Out Of Stock"
+    positions = [m.start() for m in re.finditer(r'HMT Kohinoor', page, re.IGNORECASE)]
+    print(f"Site 1: Found {len(positions)} Kohinoor mentions on homepage")
+
+    for pos in positions:
+        nearby = page[pos:pos+300]
+        if "Out Of Stock" not in nearby and "out_of_stock" not in nearby.lower():
+            print(f"Site 1: Found available Kohinoor at position {pos}")
+            return True, "https://www.hmtwatches.in"
+
+    return False, None
 
 def get_last_state():
     doc = db.collection("state").document("drop_status").get()
